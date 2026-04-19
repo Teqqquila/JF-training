@@ -1,0 +1,49 @@
+# # IndieFlicks MLP Fine-tuning Configuration (K8s / S3)
+# # Usage: python -m scripts.train --config configs/config.yaml
+
+s3:
+  endpoint: "http://10.56.2.170:30900"
+  access_key_id: "minioadmin"
+  secret_access_key: "minioadmin123"
+  region: "eu-central-1"
+  use_ssl: false
+
+data:
+  root_dir: "s3://warehouse/dataset/versioned_dataset"
+  version: "v0002"              # 新数据版本
+  embedding_dim: 384
+  parquet_batch_size_rows: 4096
+  loader_batch_size: 256
+  num_workers: 0
+
+mlflow:
+  tracking_uri: "http://129.114.25.107:30500"
+  experiment_name: "indieflicks-recommender"
+
+# Load previous best model as starting point
+pretrained:
+  enabled: true
+  source: "s3"
+  s3_bucket: "warehouse"
+  s3_key: "models/mlp/latest/model_mlp_best.pt"
+
+# No batch limits — run through all new data
+training:
+  max_train_batches: null
+  max_val_batches: null
+
+# Save retrained model — versioned + latest for rollback
+model_output:
+  s3_bucket: "warehouse"
+  version_key: "models/mlp/v0002/model_mlp_best.pt"
+  latest_key: "models/mlp/latest/model_mlp_best.pt"
+
+models:
+  mlp:
+    description: "MLP retrained on v0002 new user data"
+    params:
+      hidden_dims: [512, 256, 128]
+      dropout: 0.3
+      learning_rate: 0.0005
+      weight_decay: 0.0001
+      epochs: 15

@@ -1,0 +1,126 @@
+python - << 'EOF'
+import re
+import boto3
+from botocore.client import Config
+import pyarrow.dataset as ds
+import pyarrow.fs as pafs
+import torch
+from torch.utils.data import IterableDataset, DataLoader
+
+# ========= 配置（改这里）=========
+S3_ENDPOINT = "http://10.56.2.170:30900"
+ACCESS_KEY = "minioadmin"
+SECRET_KEY = "minioadmin123"
+
+ROOT_DIR = "s3://warehouse/dataset/versioned_dataset"
+SPLIT = "train"
+# =================================
+
+
+# ---------- 工具 ----------
+def parse_version(v):
+    m = re.match(r"v(\d+)", v)
+    return int(m.group(1)) if m else -1
+
+
+def list_versions(s3):
+    bucket, key = ROOT_DIR[len("s3://"):].split("/", 1)
+    prefix = key + "/versions/"
+
+    resp = s3.list_objects_v2(Bucket=bucket, Prefix=prefix, Delimiter="/")
+    versions = []
+
+    for cp in resp.get("CommonPrefixes", []):
+        name = cp["Prefix"].split("/")[-2]
+        if name.startswith("v"):
+            versions.append(name)
+
+    return sorted(versions, key=parse_version)
+
+
+# ---------- 初始化 ----------
+print("Connecting to MinIO...")
+
+s3 = boto3.client(
+    "s3",
+    endpoint_url=S3_ENDPOINT,
+    aws_access_key_id=ACCESS_KEY,
+    aws_secret_access_key=SECRET_KEY,
+    region_name="us-east-1",
+    config=Config(signature_version="s3v4"),
+)
+
+versions = list_versions(s3)
+if not versions:
+    raise RuntimeError("No dataset versions found!")
+
+latest_version = versions[-1]
+print("Latest version:", latest_version)
+
+dataset_path = f"{ROOT_DIR}/versions/{latest_version}/{SPLIT}"
+print("Dataset path:", dataset_path)
+
+
+# ---------- Arrow FS ----------
+fs = pafs.S3FileSystem(
+    access_key=ACCESS_KEY,
+    secret_key=SECRET_KEY,
+    endpoint_override=S3_ENDPOINT.replace("http://", ""),
+    scheme="http",
+    region="us-east-1",
+)
+
+dataset = ds.dataset(
+    dataset_path[len("s3://"):],
+    format="parquet",
+    filesystem=fs,
+)
+
+print("\nSchema:")
+print(dataset.schema)
+
+
+# ---------- 简易 Dataset ----------
+class SimpleDataset(IterableDataset):
+    def __iter__(self):
+        scanner = dataset.scanner(batch_size=4)
+
+        for batch in scanner.to_batches():
+            pyd = batch.to_pydict()
+
+            user_emb = torch.tensor(pyd["user_embedding"], dtype=torch.float32)
+            movie_emb = torch.tensor(pyd["movie_embedding"], dtype=torch.float32)
+            label = torch.tensor(pyd["label"], dtype=torch.float32)
+
+            for i in range(len(label)):
+                yield user_emb[i], movie_emb[i], label[i]
+
+
+loader = DataLoader(SimpleDataset(), batch_size=2)
+
+print("\nReading batches...\n")
+
+for i, (u, m, y) in enumerate(loader):
+    print(f"Batch {i}")
+    print("user_embedding:", u.shape)
+    print("movie_embedding:", m.shape)
+    print("label:", y.shape)
+    print("---")
+
+    if i == 2:
+        break
+
+print("\nSUCCESS: dataloader works!")
+
+EOF
+
+
+
+cat <<EOF > rclone.conf
+[rclone_s3]
+type = s3
+provider = Ceph
+access_key_id = 18759e6342dd450f98a6655404bc55ff
+secret_access_key = 60dd9a555f9542c28f935ccb2b98e1e9
+endpoint = https://chi.tacc.chameleoncloud.org:7480
+EOF

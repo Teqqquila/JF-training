@@ -1,0 +1,640 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Jellyfin Recommender</title>
+<style>
+  :root {
+    --bg: #101010; --surface: #1a1a1a; --card: #1e1e1e;
+    --accent: #00a4dc; --accent-hover: #0091c4; --accent-glow: rgba(0,164,220,0.15);
+    --success: #2ecc71; --error: #e74c3c; --warning: #f39c12;
+    --text: #e0e0e0; --text-muted: #888; --text-dim: #555;
+    --border: #2a2a2a; --purple: #aa5cc3;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI','Noto Sans',-apple-system,sans-serif; min-height: 100vh; }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  @keyframes slideIn { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes fadeIn { from{opacity:0} to{opacity:1} }
+
+  .page { display:none; animation:fadeIn .3s ease; }
+  .page.active { display:block; }
+  .header { background:var(--surface); border-bottom:1px solid var(--border); padding:0 32px; height:64px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:100; }
+  .logo { display:flex; align-items:center; gap:16px; cursor:pointer; }
+  .logo-icon { width:36px; height:36px; border-radius:8px; background:linear-gradient(135deg,var(--accent),var(--purple)); display:flex; align-items:center; justify-content:center; font-size:18px; font-weight:800; color:#fff; }
+  .logo-text { font-size:16px; font-weight:700; }
+  .logo-sub { font-size:10px; color:var(--text-muted); letter-spacing:1.5px; text-transform:uppercase; }
+  .header-right { display:flex; align-items:center; gap:16px; }
+  .nav-link { color:var(--text-muted); font-size:13px; text-decoration:none; padding:6px 14px; border-radius:6px; border:1px solid var(--border); transition:all .2s; cursor:pointer; }
+  .nav-link:hover { border-color:var(--accent); color:var(--accent); }
+
+  .badge { padding:4px 12px; border-radius:20px; font-size:12px; font-weight:600; display:inline-flex; align-items:center; gap:6px; }
+  .badge-idle { background:rgba(46,204,113,.15); color:var(--success); }
+  .badge-training { background:rgba(0,164,220,.15); color:var(--accent); }
+  .badge-error { background:rgba(231,76,60,.15); color:var(--error); }
+  .badge-dot { width:6px; height:6px; border-radius:50%; }
+  .badge-idle .badge-dot { background:var(--success); }
+  .badge-training .badge-dot { background:var(--accent); animation:pulse 1.5s infinite; }
+  .badge-error .badge-dot { background:var(--error); }
+
+  .container { padding:32px; max-width:1200px; margin:0 auto; }
+  .card { background:var(--card); border-radius:12px; padding:28px; border:1px solid var(--border); transition:border-color .2s, box-shadow .2s; }
+  .card:hover { border-color:var(--accent); box-shadow:0 0 20px var(--accent-glow); }
+  .card h3 { font-size:16px; font-weight:700; margin-bottom:6px; }
+  .card p { font-size:13px; color:var(--text-muted); line-height:1.6; margin-bottom:16px; }
+  .btn { border:none; padding:10px 28px; border-radius:8px; font-size:14px; font-weight:600; cursor:pointer; transition:all .2s; }
+  .btn-primary { background:var(--accent); color:#fff; box-shadow:0 0 20px var(--accent-glow); }
+  .btn-primary:hover { background:var(--accent-hover); }
+  .btn-primary:disabled { background:var(--text-dim); cursor:not-allowed; box-shadow:none; }
+  .btn-outline { background:transparent; border:1px solid var(--border); color:var(--text-muted); padding:6px 14px; border-radius:6px; font-size:12px; cursor:pointer; }
+  .btn-outline:hover { border-color:var(--accent); color:var(--accent); }
+  .btn-warning { background:transparent; border:1px solid var(--warning); color:var(--warning); padding:6px 16px; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; }
+  .btn-warning:hover { background:rgba(243,156,18,.1); }
+  .btn-accent-outline { background:transparent; border:1px solid var(--accent); color:var(--accent); padding:6px 16px; border-radius:6px; font-size:12px; font-weight:600; text-decoration:none; display:inline-block; }
+  .btn-accent-outline:hover { background:var(--accent-glow); }
+  .input-field { background:var(--surface); color:var(--text); border:1px solid var(--border); padding:10px 16px; border-radius:8px; font-size:14px; outline:none; }
+  .input-field:focus { border-color:var(--accent); }
+  .select-field { background:var(--surface); color:var(--text); border:1px solid var(--border); padding:6px 12px; border-radius:6px; font-size:13px; outline:none; }
+  .section-title { font-size:20px; font-weight:700; margin-bottom:16px; }
+  .footer { padding:20px 32px; border-top:1px solid var(--border); display:flex; justify-content:space-between; color:var(--text-dim); font-size:11px; margin-top:40px; }
+
+  .login-page { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:calc(100vh - 64px); padding:32px; }
+  .login-hero { text-align:center; margin-bottom:48px; }
+  .login-hero h1 { font-size:36px; font-weight:800; margin-bottom:8px; }
+  .login-hero h1 span { color:var(--accent); }
+  .login-hero p { color:var(--text-muted); font-size:15px; }
+  .login-cards { display:flex; gap:24px; flex-wrap:wrap; justify-content:center; }
+  .login-card { background:var(--card); border-radius:16px; padding:36px; border:1px solid var(--border); width:380px; text-align:center; transition:border-color .3s, box-shadow .3s; }
+  .login-card:hover { border-color:var(--accent); box-shadow:0 0 30px var(--accent-glow); }
+  .login-card .icon { font-size:48px; margin-bottom:16px; }
+  .login-card h2 { font-size:20px; font-weight:700; margin-bottom:8px; }
+  .login-card p { color:var(--text-muted); font-size:13px; line-height:1.6; margin-bottom:24px; }
+  .login-card .input-group { display:flex; gap:8px; justify-content:center; }
+  .login-error { color:var(--error); font-size:12px; margin-top:12px; min-height:18px; }
+
+  .admin-tabs { display:flex; gap:0; border-bottom:1px solid var(--border); margin-bottom:24px; }
+  .admin-tab { background:none; border:none; color:var(--text-muted); padding:12px 20px; font-size:13px; font-weight:600; cursor:pointer; border-bottom:2px solid transparent; transition:all .2s; }
+  .admin-tab:hover { color:var(--text); }
+  .admin-tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+  .admin-section { display:none; animation:slideIn .3s ease; }
+  .admin-section.active { display:block; }
+
+  .metrics-row { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:24px; }
+  .metric-card { background:var(--card); border-radius:12px; padding:20px 24px; border:1px solid var(--border); flex:1 1 200px; min-width:160px; transition:border-color .2s, box-shadow .2s; }
+  .metric-card:hover { border-color:var(--accent); box-shadow:0 0 20px var(--accent-glow); }
+  .metric-label { color:var(--text-muted); font-size:12px; letter-spacing:1px; text-transform:uppercase; margin-bottom:8px; }
+  .metric-value { font-size:28px; font-weight:700; }
+  .metric-unit { font-size:13px; color:var(--text-muted); }
+  .info-row { display:flex; justify-content:space-between; font-size:12px; padding:5px 0; }
+  .info-row .label { color:var(--text-muted); }
+  .info-row .value { color:var(--text); font-family:monospace; }
+
+  .arch { display:flex; justify-content:center; align-items:center; gap:0; flex-wrap:wrap; padding:12px 0; }
+  .arch-node { text-align:center; padding:12px 16px; border-radius:10px; background:var(--surface); border:1px solid var(--border); min-width:90px; }
+  .arch-node .aicon { font-size:24px; margin-bottom:6px; }
+  .arch-node .name { font-size:12px; font-weight:600; }
+  .arch-node .sub { font-size:10px; color:var(--text-muted); }
+  .arch-arrow { color:var(--text-dim); font-size:20px; padding:0 8px; }
+
+  .history-item { background:var(--card); border-radius:12px; padding:24px; border:1px solid var(--border); margin-bottom:16px; }
+  .history-item.latest { border-color:var(--accent); }
+  .history-header { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:16px; flex-wrap:wrap; gap:12px; }
+  .history-version { font-size:18px; font-weight:700; }
+  .history-badge { background:var(--accent-glow); color:var(--accent); padding:3px 10px; border-radius:12px; font-size:11px; font-weight:600; }
+  .history-meta { color:var(--text-muted); font-size:13px; }
+  .history-metrics { display:flex; gap:32px; flex-wrap:wrap; }
+  .history-metric .label { font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:4px; }
+  .history-metric .value { font-size:16px; font-weight:600; font-family:monospace; }
+
+  .log-box { background:#0a0a0a; border-radius:8px; padding:16px; font-family:'JetBrains Mono','Fira Code',monospace; font-size:12px; line-height:1.8; max-height:400px; overflow-y:auto; border:1px solid var(--border); color:var(--text-muted); }
+  .log-line { white-space:pre-wrap; word-break:break-all; }
+  .log-line.success { color:var(--success); }
+  .log-line.error { color:var(--error); }
+  .log-line.accent { color:var(--accent); }
+  .log-idx { color:var(--text-dim); margin-right:8px; }
+
+  .schedule-card { background:var(--card); border-radius:12px; padding:28px; border:1px solid var(--border); max-width:500px; }
+  .toggle-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:24px; }
+  .toggle { width:48px; height:26px; border-radius:13px; cursor:pointer; position:relative; transition:background .3s; }
+  .toggle.on { background:var(--accent); }
+  .toggle.off { background:var(--text-dim); }
+  .toggle-knob { width:20px; height:20px; border-radius:50%; background:#fff; position:absolute; top:3px; transition:left .3s; }
+  .toggle.on .toggle-knob { left:25px; }
+  .toggle.off .toggle-knob { left:3px; }
+  .interval-btns { display:flex; gap:8px; margin-bottom:20px; }
+  .interval-btn { padding:8px 20px; border-radius:6px; font-size:13px; cursor:pointer; font-weight:500; border:1px solid var(--border); background:transparent; color:var(--text-muted); text-transform:capitalize; }
+  .interval-btn.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+
+  .rec-header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; margin-bottom:28px; }
+  .rec-header h1 { font-size:24px; font-weight:700; }
+  .rec-header h1 span { color:var(--accent); }
+  .rec-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:16px; }
+  .rec-card { background:var(--card); border-radius:12px; padding:20px; border:1px solid var(--border); transition:border-color .2s, box-shadow .2s, transform .2s; }
+  .rec-card:hover { border-color:var(--accent); box-shadow:0 0 20px var(--accent-glow); transform:translateY(-2px); }
+  .rec-rank { font-size:24px; font-weight:800; color:var(--accent); margin-bottom:8px; }
+  .rec-score { font-size:11px; color:var(--text-muted); font-family:monospace; float:right; margin-top:4px; }
+  .rec-title { font-size:15px; font-weight:600; margin-bottom:6px; line-height:1.3; }
+  .rec-genres { font-size:12px; color:var(--text-muted); margin-bottom:4px; }
+  .rec-id { font-size:11px; color:var(--text-dim); }
+</style>
+</head>
+<body>
+
+<!-- ========== LOGIN PAGE ========== -->
+<div id="page-login" class="page active">
+  <div class="header">
+    <div class="logo"><div class="logo-icon">JR</div><div><div class="logo-text">Jellyfin Recommender</div><div class="logo-sub">Movie Recommendation System</div></div></div>
+  </div>
+  <div class="login-page">
+    <div class="login-hero">
+      <h1>Welcome to <span>Jellyfin Recommender</span></h1>
+      <p>Personalized movie recommendations powered by deep learning</p>
+    </div>
+    <div class="login-cards">
+      <div class="login-card">
+        <div class="icon">🎬</div>
+        <h2>User</h2>
+        <p>Enter your User ID to discover personalized movie recommendations tailored just for you.</p>
+        <div class="input-group">
+          <input type="number" id="userIdInput" class="input-field" placeholder="User ID" style="width:140px">
+          <button class="btn btn-primary" onclick="loginUser()">Get Recommendations</button>
+        </div>
+        <div id="userError" class="login-error"></div>
+      </div>
+      <div class="login-card">
+        <div class="icon">🔧</div>
+        <h2>Admin</h2>
+        <p>Access the training dashboard, manage models, view metrics, and generate recommendations for any user.</p>
+        <div class="input-group">
+          <input type="password" id="adminPwInput" class="input-field" placeholder="Password" style="width:140px">
+          <button class="btn btn-primary" onclick="loginAdmin()">Admin Login</button>
+        </div>
+        <div id="adminError" class="login-error"></div>
+      </div>
+    </div>
+  </div>
+  <div class="footer"><span>Jellyfin Recommender &middot; Powered by PyTorch + MLflow + MinIO</span><span>NYU Tandon &middot; ML Systems 2026</span></div>
+</div>
+
+<!-- ========== USER PAGE ========== -->
+<div id="page-user" class="page">
+  <div class="header">
+    <div class="logo" onclick="navigateTo('login')"><div class="logo-icon">JR</div><div><div class="logo-text">Jellyfin Recommender</div><div class="logo-sub">User Dashboard</div></div></div>
+    <div class="header-right">
+      <span id="recUserBadge" style="color:var(--accent);font-size:13px;font-weight:600"></span>
+      <span id="userStatusBadge" class="badge badge-idle"><span class="badge-dot"></span><span id="userStatusText">Ready</span></span>
+      <a href="http://129.114.25.107:30500" target="_blank" class="nav-link">MLflow ↗</a>
+      <span class="nav-link" onclick="logout()">Logout</span>
+    </div>
+  </div>
+  <div class="container">
+    <div class="admin-tabs" id="userTabs">
+      <button class="admin-tab active" data-section="user-recs" onclick="switchTab('user',this)">My Recommendations</button>
+      <button class="admin-tab" data-section="user-overview" onclick="switchTab('user',this)">Overview</button>
+      <button class="admin-tab" data-section="user-history" onclick="switchTab('user',this)">Model History</button>
+      <button class="admin-tab" data-section="user-logs" onclick="switchTab('user',this)">Training Logs</button>
+      <button class="admin-tab" data-section="user-schedule" onclick="switchTab('user',this)">Schedule</button>
+    </div>
+    <div id="sec-user-recs" class="admin-section active">
+      <div class="rec-header"><h1>🎬 Recommended <span>For You</span></h1></div>
+      <div id="userRecResults" class="rec-grid"></div>
+    </div>
+    <div id="sec-user-overview" class="admin-section">
+      <div class="metrics-row">
+        <div class="metric-card"><div class="metric-label">Model Version</div><div><span class="metric-value" id="uMetricVersion">--</span></div></div>
+        <div class="metric-card"><div class="metric-label">Best Val MSE</div><div><span class="metric-value" id="uMetricMse">--</span></div></div>
+        <div class="metric-card"><div class="metric-label">Hit Rate@10</div><div><span class="metric-value" id="uMetricHitRate">--</span><span class="metric-unit">%</span></div></div>
+        <div class="metric-card"><div class="metric-label">NDCG@10</div><div><span class="metric-value" id="uMetricNdcg">--</span></div></div>
+      </div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:24px">
+        <div class="card" style="flex:1 1 350px">
+          <h3>Retrain Model</h3>
+          <p>Load latest weights, fine-tune on new data, save with version tracking.</p>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+            <label style="font-size:13px;color:var(--text-muted)">Dataset:</label>
+            <select id="uVersionSelect" class="select-field" style="min-width:120px"><option>Loading...</option></select>
+          </div>
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <button id="uRetrainBtn" class="btn btn-primary" onclick="doRetrain('u')">Retrain Now</button>
+            <span id="uLastTrained" style="font-size:12px;color:var(--text-muted)"></span>
+          </div>
+        </div>
+        <div class="card" style="flex:1 1 300px">
+          <h3>Data Pipeline</h3>
+          <p>Versioned datasets in MinIO, processed into embeddings.</p>
+          <div class="info-row"><span class="label">S3 Endpoint</span><span class="value">minio.mlops.svc:9000</span></div>
+          <div class="info-row"><span class="label">Dataset Path</span><span class="value">warehouse/dataset/versioned_dataset</span></div>
+          <div class="info-row"><span class="label">Current Version</span><span class="value" id="uDataVersion">--</span></div>
+          <div class="info-row"><span class="label">Embedding Dim</span><span class="value">384 (Sentence-BERT)</span></div>
+        </div>
+      </div>
+    </div>
+    <div id="sec-user-history" class="admin-section">
+      <h2 class="section-title">Model Versions</h2>
+      <div id="uHistoryList"></div>
+    </div>
+    <div id="sec-user-logs" class="admin-section">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h2 class="section-title" style="margin:0">Training Logs</h2>
+        <button class="btn-outline" onclick="document.getElementById('uLogBox').innerHTML=''">Clear</button>
+      </div>
+      <div id="uLogBox" class="log-box"></div>
+      <div style="margin-top:16px"><button id="uRetrainBtn2" class="btn btn-primary" onclick="doRetrain('u')">Start Retraining</button></div>
+    </div>
+    <div id="sec-user-schedule" class="admin-section">
+      <h2 class="section-title">Scheduled Retraining</h2>
+      <div class="schedule-card">
+        <div class="toggle-row">
+          <div><div style="font-size:15px;font-weight:600">Auto Retrain</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px">Retrain when new data is detected</div></div>
+          <div id="uScheduleToggle" class="toggle off" onclick="this.classList.toggle('on');this.classList.toggle('off')"><div class="toggle-knob"></div></div>
+        </div>
+        <div style="margin-bottom:20px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:8px">Interval</div>
+          <div class="interval-btns" id="uIntervalBtns">
+            <button class="interval-btn" data-interval="hourly" onclick="pickInterval(this)">Hourly</button>
+            <button class="interval-btn active" data-interval="daily" onclick="pickInterval(this)">Daily</button>
+            <button class="interval-btn" data-interval="weekly" onclick="pickInterval(this)">Weekly</button>
+          </div>
+        </div>
+        <div style="margin-bottom:24px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:8px">Time (UTC)</div>
+          <input type="time" id="uScheduleTime" class="input-field" value="02:00" style="width:auto">
+        </div>
+        <button class="btn btn-primary" onclick="saveSchedule('u')">Save Schedule</button>
+      </div>
+    </div>
+  </div>
+  <div class="footer"><span>Jellyfin Recommender &middot; Powered by PyTorch + MLflow + MinIO</span><span>NYU Tandon &middot; ML Systems 2026</span></div>
+</div>
+
+<!-- ========== ADMIN PAGE ========== -->
+<div id="page-admin" class="page">
+  <div class="header">
+    <div class="logo" onclick="navigateTo('login')"><div class="logo-icon">JR</div><div><div class="logo-text">Jellyfin Recommender</div><div class="logo-sub">Admin Dashboard</div></div></div>
+    <div class="header-right">
+      <span id="statusBadge" class="badge badge-idle"><span class="badge-dot"></span><span id="statusText">Ready</span></span>
+      <a href="http://129.114.25.107:30500" target="_blank" class="nav-link">MLflow ↗</a>
+      <span class="nav-link" onclick="logout()">Logout</span>
+    </div>
+  </div>
+  <div class="container">
+    <div class="admin-tabs" id="adminTabs">
+      <button class="admin-tab active" data-section="a-inference" onclick="switchTab('admin',this)">Inference</button>
+      <button class="admin-tab" data-section="a-overview" onclick="switchTab('admin',this)">Overview</button>
+      <button class="admin-tab" data-section="a-history" onclick="switchTab('admin',this)">Model History</button>
+      <button class="admin-tab" data-section="a-logs" onclick="switchTab('admin',this)">Training Logs</button>
+      <button class="admin-tab" data-section="a-schedule" onclick="switchTab('admin',this)">Schedule</button>
+    </div>
+
+    <div id="sec-a-inference" class="admin-section active">
+      <h2 class="section-title">Inference</h2>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:24px">
+        <label style="font-size:13px;color:var(--text-muted)">User:</label>
+        <input id="adminUserInput" class="input-field" placeholder="Enter User ID" style="width:140px">
+        <span style="font-size:12px;color:var(--text-dim)">or</span>
+        <select id="adminUserSelect" class="select-field" onchange="document.getElementById('adminUserInput').value=this.value"></select>
+        <label style="font-size:13px;color:var(--text-muted);margin-left:8px">Model:</label>
+        <select id="modelSelect" class="select-field"></select>
+        <button class="btn btn-primary" onclick="fetchAdminRec()">Get Recommendations</button>
+      </div>
+      <div id="adminRecResults" class="rec-grid"></div>
+    </div>
+
+    <div id="sec-a-overview" class="admin-section">
+      <div class="metrics-row">
+        <div class="metric-card"><div class="metric-label">Model Version</div><div><span class="metric-value" id="aMetricVersion">--</span></div></div>
+        <div class="metric-card"><div class="metric-label">Best Val MSE</div><div><span class="metric-value" id="aMetricMse">--</span></div></div>
+        <div class="metric-card"><div class="metric-label">Hit Rate@10</div><div><span class="metric-value" id="aMetricHitRate">--</span><span class="metric-unit">%</span></div></div>
+        <div class="metric-card"><div class="metric-label">NDCG@10</div><div><span class="metric-value" id="aMetricNdcg">--</span></div></div>
+      </div>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:24px">
+        <div class="card" style="flex:1 1 350px">
+          <h3>Retrain Model</h3>
+          <p>Load latest weights, fine-tune on new data, save with version tracking.</p>
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+            <label style="font-size:13px;color:var(--text-muted)">Dataset:</label>
+            <select id="aVersionSelect" class="select-field" style="min-width:120px"><option>Loading...</option></select>
+          </div>
+          <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+            <button id="aRetrainBtn" class="btn btn-primary" onclick="doRetrain('a')">Retrain Now</button>
+            <span id="aLastTrained" style="font-size:12px;color:var(--text-muted)"></span>
+          </div>
+        </div>
+        <div class="card" style="flex:1 1 300px">
+          <h3>Data Pipeline</h3>
+          <p>Versioned datasets in MinIO, processed into embeddings.</p>
+          <div class="info-row"><span class="label">S3 Endpoint</span><span class="value">minio.mlops.svc:9000</span></div>
+          <div class="info-row"><span class="label">Dataset Path</span><span class="value">warehouse/dataset/versioned_dataset</span></div>
+          <div class="info-row"><span class="label">Current Version</span><span class="value" id="aDataVersion">--</span></div>
+          <div class="info-row"><span class="label">Embedding Dim</span><span class="value">384 (Sentence-BERT)</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3>System Architecture</h3>
+        <div class="arch">
+          <div class="arch-node"><div class="aicon">🎬</div><div class="name">Jellyfin</div><div class="sub">User Activity</div></div><div class="arch-arrow">→</div>
+          <div class="arch-node"><div class="aicon">⚙️</div><div class="name">Pipeline</div><div class="sub">Embeddings</div></div><div class="arch-arrow">→</div>
+          <div class="arch-node"><div class="aicon">🗄️</div><div class="name">MinIO</div><div class="sub">Versioned Data</div></div><div class="arch-arrow">→</div>
+          <div class="arch-node"><div class="aicon">🧠</div><div class="name">Training</div><div class="sub">Fine-tune</div></div><div class="arch-arrow">→</div>
+          <div class="arch-node"><div class="aicon">📊</div><div class="name">MLflow</div><div class="sub">Tracking</div></div><div class="arch-arrow">→</div>
+          <div class="arch-node"><div class="aicon">🎯</div><div class="name">Serving</div><div class="sub">Recommendations</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div id="sec-a-history" class="admin-section">
+      <h2 class="section-title">Model Versions</h2>
+      <div id="aHistoryList"></div>
+    </div>
+
+    <div id="sec-a-logs" class="admin-section">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <h2 class="section-title" style="margin:0">Training Logs</h2>
+        <button class="btn-outline" onclick="document.getElementById('aLogBox').innerHTML=''">Clear</button>
+      </div>
+      <div id="aLogBox" class="log-box"></div>
+      <div style="margin-top:16px"><button id="aRetrainBtn2" class="btn btn-primary" onclick="doRetrain('a')">Start Retraining</button></div>
+    </div>
+
+    <div id="sec-a-schedule" class="admin-section">
+      <h2 class="section-title">Scheduled Retraining</h2>
+      <div class="schedule-card">
+        <div class="toggle-row">
+          <div><div style="font-size:15px;font-weight:600">Auto Retrain</div><div style="font-size:12px;color:var(--text-muted);margin-top:2px">Retrain when new data is detected</div></div>
+          <div id="aScheduleToggle" class="toggle off" onclick="this.classList.toggle('on');this.classList.toggle('off')"><div class="toggle-knob"></div></div>
+        </div>
+        <div style="margin-bottom:20px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:8px">Interval</div>
+          <div class="interval-btns" id="aIntervalBtns">
+            <button class="interval-btn" data-interval="hourly" onclick="pickInterval(this)">Hourly</button>
+            <button class="interval-btn active" data-interval="daily" onclick="pickInterval(this)">Daily</button>
+            <button class="interval-btn" data-interval="weekly" onclick="pickInterval(this)">Weekly</button>
+          </div>
+        </div>
+        <div style="margin-bottom:24px">
+          <div style="font-size:13px;font-weight:600;margin-bottom:8px">Time (UTC)</div>
+          <input type="time" id="aScheduleTime" class="input-field" value="02:00" style="width:auto">
+        </div>
+        <button class="btn btn-primary" onclick="saveSchedule('a')">Save Schedule</button>
+      </div>
+    </div>
+  </div>
+  <div class="footer"><span>Jellyfin Recommender &middot; Powered by PyTorch + MLflow + MinIO</span><span>NYU Tandon &middot; ML Systems 2026</span></div>
+</div>
+
+<script>
+var API = '';
+var currentRole = null;
+var currentUserId = null;
+
+function navigateTo(page) { location.hash = '#/' + page; }
+function handleRoute() {
+  var hash = location.hash || '#/login';
+  document.querySelectorAll('.page').forEach(function(p) { p.classList.remove('active'); });
+  if (hash === '#/user' && currentRole === 'user') document.getElementById('page-user').classList.add('active');
+  else if (hash === '#/admin' && currentRole === 'admin') document.getElementById('page-admin').classList.add('active');
+  else document.getElementById('page-login').classList.add('active');
+}
+window.addEventListener('hashchange', handleRoute);
+
+function switchTab(ctx, btn) {
+  btn.parentElement.querySelectorAll('.admin-tab').forEach(function(t) { t.classList.remove('active'); });
+  btn.classList.add('active');
+  var page = ctx === 'user' ? document.getElementById('page-user') : document.getElementById('page-admin');
+  page.querySelectorAll('.admin-section').forEach(function(s) { s.classList.remove('active'); });
+  document.getElementById('sec-' + btn.dataset.section).classList.add('active');
+}
+function switchTabByName(ctx, name) {
+  var page = ctx === 'user' ? document.getElementById('page-user') : document.getElementById('page-admin');
+  var btn = page.querySelector('.admin-tab[data-section="' + name + '"]');
+  if (btn) switchTab(ctx, btn);
+}
+
+function loginUser() {
+  var uid = document.getElementById('userIdInput').value;
+  if (!uid) { document.getElementById('userError').textContent = 'Enter a User ID'; return; }
+  document.getElementById('userError').textContent = '';
+  fetch(API + '/api/login?role=user&user_id=' + uid, { method: 'POST' })
+    .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+    .then(function(res) {
+      if (!res.ok) { document.getElementById('userError').textContent = res.data.error; return; }
+      currentRole = 'user';
+      currentUserId = parseInt(uid);
+      document.getElementById('recUserBadge').textContent = 'User ' + uid;
+      navigateTo('user');
+      fetchUserRec();
+      loadCommonData('u');
+    })
+    .catch(function() { document.getElementById('userError').textContent = 'Connection error'; });
+}
+
+function loginAdmin() {
+  var pw = document.getElementById('adminPwInput').value;
+  document.getElementById('adminError').textContent = '';
+  fetch(API + '/api/login?role=admin&password=' + encodeURIComponent(pw), { method: 'POST' })
+    .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
+    .then(function(res) {
+      if (!res.ok) { document.getElementById('adminError').textContent = res.data.error; return; }
+      currentRole = 'admin';
+      var userSel = document.getElementById('adminUserSelect');
+      userSel.innerHTML = res.data.users.map(function(u) { return '<option value="' + u + '">User ' + u + '</option>'; }).join('');
+      document.getElementById('adminUserInput').value = '';
+      var modelSel = document.getElementById('modelSelect');
+      modelSel.innerHTML = res.data.models.map(function(m) { return '<option value="' + m + '"' + (m === 'latest' ? ' selected' : '') + '>' + m + '</option>'; }).join('');
+      navigateTo('admin');
+      loadCommonData('a');
+      fetchAdminRec();
+    })
+    .catch(function() { document.getElementById('adminError').textContent = 'Connection error'; });
+}
+
+function logout() {
+  currentRole = null; currentUserId = null;
+  document.getElementById('userIdInput').value = '';
+  document.getElementById('adminPwInput').value = '';
+  document.getElementById('userError').textContent = '';
+  document.getElementById('adminError').textContent = '';
+  navigateTo('login');
+}
+
+function loadCommonData(p) { loadStatus(p); loadHistory(p); loadLogs(p); loadDatasets(p); }
+
+function loadStatus(p) {
+  fetch(API + '/api/status').then(function(r) { return r.json(); }).then(function(data) {
+    var m = data.current_model;
+    if (m) {
+      var v = document.getElementById(p+'MetricVersion'); if(v) v.textContent = m.run_name || m.data_version || '--';
+      var ms = document.getElementById(p+'MetricMse'); if(ms) ms.textContent = m.metrics.best_val_mse ? m.metrics.best_val_mse.toFixed(4) : '--';
+      var hr = document.getElementById(p+'MetricHitRate'); if(hr) hr.textContent = m.metrics.hit_rate_10 ? (m.metrics.hit_rate_10*100).toFixed(1) : '--';
+      var nd = document.getElementById(p+'MetricNdcg'); if(nd) nd.textContent = m.metrics.ndcg_10 ? m.metrics.ndcg_10.toFixed(4) : '--';
+      var dv = document.getElementById(p+'DataVersion'); if(dv) dv.textContent = m.data_version || '--';
+      var lt = document.getElementById(p+'LastTrained'); if(lt) lt.textContent = 'Last: ' + (m.end_time || '--');
+    }
+    setBadge(p, data.training_status);
+  }).catch(function() {});
+}
+
+function setBadge(p, status) {
+  var badge, text;
+  if (p === 'u') { badge = document.getElementById('userStatusBadge'); text = document.getElementById('userStatusText'); }
+  else { badge = document.getElementById('statusBadge'); text = document.getElementById('statusText'); }
+  if (!badge) return;
+  badge.className = 'badge badge-' + status;
+  text.textContent = status === 'idle' ? 'Ready' : status === 'training' ? 'Training...' : 'Error';
+  document.querySelectorAll('#'+p+'RetrainBtn, #'+p+'RetrainBtn2').forEach(function(btn) {
+    btn.disabled = status === 'training';
+    btn.textContent = status === 'training' ? 'Training...' : (btn.id.indexOf('Btn2') >= 0 ? 'Start Retraining' : 'Retrain Now');
+  });
+}
+
+function loadHistory(p) {
+  fetch(API + '/api/history').then(function(r) { return r.json(); }).then(function(data) {
+    var c = document.getElementById(p+'HistoryList'); if (!c) return;
+    if (!data.runs || !data.runs.length) { c.innerHTML = '<p style="color:var(--text-muted)">No runs.</p>'; return; }
+    c.innerHTML = data.runs.map(function(r, i) {
+      return '<div class="history-item ' + (i===0?'latest':'') + '"><div class="history-header"><div style="display:flex;align-items:center;gap:12px">' +
+        '<span class="history-version">' + (r.run_name||r.data_version) + '</span>' +
+        (i===0?'<span class="history-badge">LATEST</span>':'') +
+        '<span class="history-meta">data: '+r.data_version+' &middot; '+(r.start_time||'--')+'</span></div>' +
+        '<div style="display:flex;gap:8px">' +
+        (i!==0?'<button class="btn-warning" onclick="rollbackTo(\''+r.data_version+'\',\''+p+'\')">Rollback</button>':'') +
+        '<a href="'+r.mlflow_url+'" target="_blank" class="btn-accent-outline">MLflow ↗</a></div></div>' +
+        '<div class="history-metrics">' +
+        '<div class="history-metric"><div class="label">Val MSE</div><div class="value">'+(r.metrics.best_val_mse?r.metrics.best_val_mse.toFixed(4):'--')+'</div></div>' +
+        '<div class="history-metric"><div class="label">Hit Rate@10</div><div class="value">'+(r.metrics.hit_rate_10?(r.metrics.hit_rate_10*100).toFixed(1)+'%':'--')+'</div></div>' +
+        '<div class="history-metric"><div class="label">NDCG@10</div><div class="value">'+(r.metrics.ndcg_10?r.metrics.ndcg_10.toFixed(4):'--')+'</div></div>' +
+        '<div class="history-metric"><div class="label">Duration</div><div class="value">'+(r.metrics.total_wall_time_sec?r.metrics.total_wall_time_sec.toFixed(1)+'s':'--')+'</div></div>' +
+        '</div></div>';
+    }).join('');
+  }).catch(function() {});
+}
+
+function loadLogs(p) {
+  fetch(API + '/api/logs').then(function(r) { return r.json(); }).then(function(data) {
+    var box = document.getElementById(p+'LogBox'); if (!box || !data.logs) return;
+    box.innerHTML = data.logs.map(function(log, i) {
+      var cls = '';
+      if (log.indexOf('New best')>=0||log.indexOf('complete')>=0||log.indexOf('Done')>=0) cls='success';
+      else if (log.indexOf('Error')>=0||log.indexOf('failed')>=0) cls='error';
+      else if (log.indexOf('Epoch')>=0) cls='accent';
+      return '<div class="log-line '+cls+'"><span class="log-idx">['+String(i).padStart(2,'0')+']</span>'+esc(log)+'</div>';
+    }).join('');
+    box.scrollTop = box.scrollHeight;
+    setBadge(p, data.status);
+  }).catch(function() {});
+}
+
+function loadDatasets(p) {
+  fetch(API + '/api/datasets').then(function(r) { return r.json(); }).then(function(data) {
+    var sel = document.getElementById(p+'VersionSelect'); if (!sel) return;
+    sel.innerHTML = data.versions.map(function(v) {
+      return '<option value="'+v+'"'+(v===data.current?' selected':'')+'>'+v+'</option>';
+    }).join('');
+  }).catch(function() {});
+}
+
+function doRetrain(p) {
+  var sel = document.getElementById(p+'VersionSelect');
+  var version = sel ? sel.value : '';
+  var url = version ? API+'/api/retrain/'+version : API+'/api/retrain';
+  fetch(url, {method:'POST'}).then(function(r){return r.json();}).then(function(data) {
+    if (data.message) {
+      setBadge(p, 'training');
+      switchTabByName(p==='u'?'user':'admin', p+'-logs');
+      pollLogs(p);
+    } else alert(data.error || 'Failed');
+  }).catch(function(e){ alert('Error: '+e.message); });
+}
+
+function rollbackTo(v, p) {
+  if (confirm('Rollback to '+v+'?')) {
+    fetch(API+'/api/rollback/'+v,{method:'POST'}).then(function(r){return r.json();}).then(function(d){
+      alert(d.message||d.error); loadStatus(p); loadHistory(p);
+    }).catch(function(e){alert('Error: '+e.message);});
+  }
+}
+
+var pollTimers = {};
+function pollLogs(p) {
+  if (pollTimers[p]) clearInterval(pollTimers[p]);
+  pollTimers[p] = setInterval(function() {
+    loadLogs(p);
+    fetch(API+'/api/logs').then(function(r){return r.json();}).then(function(data) {
+      if (data.status !== 'training') {
+        clearInterval(pollTimers[p]); pollTimers[p]=null;
+        loadStatus(p); loadHistory(p);
+      }
+    });
+  }, 1000);
+}
+
+function renderRecs(container, recs) {
+  var method = recs.length > 0 ? recs[0].method : '';
+  var notice = '';
+  if (method === 'popular_fallback') {
+    notice = '<div style="background:rgba(243,156,18,.1);border:1px solid var(--warning);border-radius:8px;padding:12px 16px;margin-bottom:16px;color:var(--warning);font-size:13px">This user has no viewing history. Showing popular movies instead.</div>';
+  }
+  container.innerHTML = notice + recs.map(function(r, i) {
+    return '<div class="rec-card">' +
+      '<div class="rec-score">Score: '+r.score.toFixed(4)+'</div>' +
+      '<div class="rec-rank">#'+(i+1)+'</div>' +
+      '<div class="rec-title">'+esc(r.title)+'</div>' +
+      '<div class="rec-genres">'+esc(r.genres.replace(/\|/g,' \u00b7 '))+'</div>' +
+      '<div class="rec-id">ID: '+r.movie_id+'</div></div>';
+  }).join('');
+}
+
+function fetchUserRec() {
+  var c = document.getElementById('userRecResults');
+  c.innerHTML = '<p style="color:var(--text-muted)">Loading recommendations...</p>';
+  fetch(API+'/api/recommend/'+currentUserId+'?top_n=10&model_version=latest')
+    .then(function(r){return r.json().then(function(d){return {ok:r.ok,data:d};});})
+    .then(function(res) {
+      if(!res.ok){c.innerHTML='<p style="color:var(--error)">'+res.data.error+'</p>';return;}
+      renderRecs(c, res.data.recommendations);
+    })
+    .catch(function(e){c.innerHTML='<p style="color:var(--error)">Error: '+e.message+'</p>';});
+}
+
+function fetchAdminRec() {
+  var uid = document.getElementById('adminUserInput').value;
+  var model = document.getElementById('modelSelect').value;
+  if (!uid) return;
+  var c = document.getElementById('adminRecResults');
+  c.innerHTML = '<p style="color:var(--text-muted)">Loading...</p>';
+  fetch(API+'/api/recommend/'+uid+'?top_n=10&model_version='+model)
+    .then(function(r){return r.json().then(function(d){return {ok:r.ok,data:d};});})
+    .then(function(res) {
+      if(!res.ok){c.innerHTML='<p style="color:var(--error)">'+res.data.error+'</p>';return;}
+      renderRecs(c, res.data.recommendations);
+    })
+    .catch(function(e){c.innerHTML='<p style="color:var(--error)">Error: '+e.message+'</p>';});
+}
+
+function pickInterval(btn) {
+  btn.parentElement.querySelectorAll('.interval-btn').forEach(function(b){b.classList.remove('active');});
+  btn.classList.add('active');
+}
+function saveSchedule(p) {
+  var enabled=document.getElementById(p+'ScheduleToggle').classList.contains('on');
+  var btns=document.getElementById(p+'IntervalBtns');
+  var interval=btns.querySelector('.interval-btn.active').dataset.interval;
+  var time=document.getElementById(p+'ScheduleTime').value;
+  fetch(API+'/api/schedule?enabled='+enabled+'&interval='+interval+'&time_utc='+time,{method:'POST'})
+    .then(function(){alert('Saved!');}).catch(function(){alert('Error');});
+}
+
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+setInterval(function() {
+  if (currentRole === 'admin') { loadStatus('a'); loadLogs('a'); }
+  if (currentRole === 'user') { loadStatus('u'); loadLogs('u'); }
+}, 5000);
+
+handleRoute();
+</script>
+</body>
+</html
